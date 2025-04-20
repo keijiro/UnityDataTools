@@ -23,6 +23,7 @@ public static class Program
             var sOpt = new Option<bool>(aliases: new[] { "--skip-references", "-s" }, description: "Skip CRC and do not extract references");
             var rOpt = new Option<bool>(aliases: new[] { "--extract-references", "-r" }) { IsHidden = true };
             var pOpt = new Option<string>(aliases: new[] { "--search-pattern", "-p" }, description: "File search pattern", getDefaultValue: () => "*");
+            var vOpt = new Option<bool>(aliases: new[] { "--verbose", "-v" }, description: "Verbose output");
 
             var analyzeCommand = new Command("analyze", "Analyze AssetBundles or SerializedFiles.")
             {
@@ -31,12 +32,13 @@ public static class Program
                 sOpt,
                 rOpt,
                 pOpt,
+                vOpt
             };
 
             analyzeCommand.AddAlias("analyse");
             analyzeCommand.SetHandler(
-                (DirectoryInfo di, string o, bool s, bool r, string p) => Task.FromResult(HandleAnalyze(di, o, s, r, p)),
-                pathArg, oOpt, sOpt, rOpt, pOpt);
+                (DirectoryInfo di, string o, bool s, bool r, string p, bool v) => Task.FromResult(HandleAnalyze(di, o, s, r, p, v)),
+                pathArg, oOpt, sOpt, rOpt, pOpt, vOpt);
 
             rootCommand.AddCommand(analyzeCommand);
         }
@@ -130,7 +132,7 @@ public static class Program
         Text,
     }
 
-    static int HandleAnalyze(DirectoryInfo path, string outputFile, bool skipReferences, bool extractReferences, string searchPattern)
+    static int HandleAnalyze(DirectoryInfo path, string outputFile, bool skipReferences, bool extractReferences, string searchPattern, bool verbose)
     {
         var analyzer = new AnalyzerTool();
 
@@ -139,7 +141,7 @@ public static class Program
             Console.WriteLine("WARNING: --extract-references, -r option is deprecated (references are now extracted by default)");
         }
 
-        return analyzer.Analyze(path.FullName, outputFile, searchPattern, skipReferences);
+        return analyzer.Analyze(path.FullName, outputFile, searchPattern, skipReferences, verbose);
     }
 
     static int HandleFindReferences(FileInfo databasePath, string outputFile, long? objectId, string objectName, string objectType, bool findAll)

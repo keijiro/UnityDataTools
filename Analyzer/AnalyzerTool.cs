@@ -8,10 +8,14 @@ namespace UnityDataTools.Analyzer;
 
 public class AnalyzerTool
 {
-    public int Analyze(string path, string databaseName, string searchPattern, bool skipReferences)
+    bool m_Verbose = false;
+
+    public int Analyze(string path, string databaseName, string searchPattern, bool skipReferences, bool verbose)
     {
+        m_Verbose = verbose;
+
         using SQLiteWriter writer = new (databaseName, skipReferences);
-        
+
         try
         {
             writer.Begin();
@@ -21,90 +25,28 @@ public class AnalyzerTool
             Console.Error.WriteLine($"Error creating database: {e.Message}");
             return 1;
         }
-        
+
         var timer = new Stopwatch();
         timer.Start();
 
         var files = Directory.GetFiles(path, searchPattern, SearchOption.AllDirectories);
         int i = 1;
-        int lastLength = 0;
         foreach (var file in files)
         {
-            // Automatically ignore these annoying OS X style files meta files.
-            if (Path.GetFileName(file) == ".DS_Store")
+            if (ShouldIgnoreFile(file))
+            {
+                var relativePath = Path.GetRelativePath(path, file);
+
+                if (m_Verbose)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine($"Ignoring {relativePath}");
+                }
+                ++i;
                 continue;
-
-            try
-            {
-                UnityArchive archive = null;
-
-                try
-                {
-                    archive = UnityFileSystem.MountArchive(file, "archive:" + Path.DirectorySeparatorChar);
-                }
-                catch (NotSupportedException)
-                {
-                    // It wasn't an AssetBundle, try to open the file as a SerializedFile.
-                    
-                    var relativePath = Path.GetRelativePath(path, file);
-
-                    writer.WriteSerializedFile(relativePath, file, Path.GetDirectoryName(file));
-
-                    var message = $"Processing {i * 100 / files.Length}% ({i}/{files.Length}) {file}";
-                    Console.Write($"\rProcessing {i * 100 / files.Length}% ({i}/{files.Length}) {file}");
-                    lastLength = message.Length;
-                }
-
-                if (archive != null)
-                {
-                    try
-                    {
-                        var assetBundleName = Path.GetRelativePath(path, file);
-                        
-                        writer.BeginAssetBundle(assetBundleName, new FileInfo(file).Length);
-                        
-                        var message = $"Processing {i * 100 / files.Length}% ({i}/{files.Length}) {assetBundleName}";
-                        Console.Write($"\r{message}{new string(' ', Math.Max(0, lastLength - message.Length))}");
-                        lastLength = message.Length;
-
-                        foreach (var node in archive.Nodes)
-                        {
-                            if (node.Flags.HasFlag(ArchiveNodeFlags.SerializedFile))
-                            {
-                                try
-                                {
-                                    writer.WriteSerializedFile(node.Path, "archive:/" + node.Path, Path.GetDirectoryName(file));
-                                }
-                                catch (Exception e)
-                                {
-                                    Console.Error.WriteLine($"\rError processing {node.Path} in archive {file}{new string(' ', Math.Max(0, lastLength - message.Length))}");
-                                    Console.Error.WriteLine(e);
-                                    Console.WriteLine();
-                                }
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        Console.Write($"\r{new string(' ', lastLength)}");
-                        writer.EndAssetBundle();
-                        archive.Dispose();
-                    }
-                }
-            }
-            catch(NotSupportedException) {
-                Console.Error.WriteLine();
-                //Console.Error.WriteLine($"File not supported: {file}"); // This is commented out because another codepath will output "failed to load"
-            }
-            catch (Exception e) 
-            {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine($"Error processing file: {file}");
-                Console.Write($"{e.GetType()}: ");
-                Console.WriteLine(e.Message);
-                Console.WriteLine(e.StackTrace);
             }
 
+            ProcessFile(file, path, writer, i, files.Length);
             ++i;
         }
 
@@ -118,5 +60,131 @@ public class AnalyzerTool
         Console.WriteLine($"Total time: {(timer.Elapsed.TotalMilliseconds / 1000.0):F3} s");
 
         return 0;
+    }
+
+    bool ShouldIgnoreFile(string file)
+    {
+        // Unfortunately there is no standard extension for AssetBundles, and SerializedFiles often have no extension at all.
+        // There is also no distinctive signature at the start of a SerializedFile to immediately recognize it
+        // (Unity Archives do have this).
+        // So to reduce noise in UnityDataTool output we filter out files that we have a high confidence are NOT SerializedFiles or Unity Archives.
+
+        string fileName = Path.GetFileName(file);
+        string extension = Path.GetExtension(file);
+
+        if ((fileName == ".DS_Store") || // Automatically ignore these annoying OS X style files meta files.
+            (fileName == "archive_dependencies.bin") ||
+            (fileName == "scene_info.bin") ||
+            (fileName == "app.info") ||
+            (extension == ".txt") ||
+            (extension == ".resS") ||
+            (extension == ".resource") ||
+            (extension == ".json") ||
+            (extension == ".dll") ||
+            (extension == ".pdb") ||
+            (extension == ".manifest") ||
+            (extension == ".entities") ||
+            (extension == ".entityheader"))
+            return true;
+        return false;
+    }
+
+    void ProcessFile(string file, string rootDirectory, SQLiteWriter writer, int fileIndex, int cntFiles)
+    {
+        try
+        {
+            UnityArchive archive = null;
+
+            try
+            {
+                archive = UnityFileSystem.MountArchive(file, "archive:" + Path.DirectorySeparatorChar);
+            }
+            catch (NotSupportedException)
+            {
+                // It wasn't an AssetBundle, try to open the file as a SerializedFile.
+
+                var relativePath = Path.GetRelativePath(rootDirectory, file);
+                writer.WriteSerializedFile(relativePath, file, Path.GetDirectoryName(file));
+
+                ReportProgress(relativePath, fileIndex, cntFiles);
+            }
+
+            if (archive != null)
+            {
+                try
+                {
+                    var assetBundleName = Path.GetRelativePath(rootDirectory, file);
+
+                    writer.BeginAssetBundle(assetBundleName, new FileInfo(file).Length);
+                    ReportProgress(assetBundleName, fileIndex, cntFiles);
+
+                    foreach (var node in archive.Nodes)
+                    {
+                        if (node.Flags.HasFlag(ArchiveNodeFlags.SerializedFile))
+                        {
+                            try
+                            {
+                                writer.WriteSerializedFile(node.Path, "archive:/" + node.Path, Path.GetDirectoryName(file));
+                            }
+                            catch (Exception e)
+                            {
+                                EraseProgressLine();
+                                Console.Error.WriteLine($"Error processing {node.Path} in archive {file}");
+                                Console.Error.WriteLine(e);
+                                Console.WriteLine();
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    writer.EndAssetBundle();
+                    archive.Dispose();
+                }
+            }
+            EraseProgressLine();
+        }
+        catch (NotSupportedException)
+        {
+            EraseProgressLine();
+            Console.Error.WriteLine();
+            //Console.Error.WriteLine($"File not supported: {file}"); // This is commented out because another codepath will output "failed to load"
+        }
+        catch (Exception e)
+        {
+            EraseProgressLine();
+            Console.Error.WriteLine();
+            Console.Error.WriteLine($"Error processing file: {file}");
+            Console.WriteLine($"{e.GetType()}: {e.Message}");
+            if (m_Verbose)
+                Console.WriteLine(e.StackTrace);
+        }
+    }
+
+    int m_LastProgressMessageLength = 0;
+
+    void ReportProgress(string relativePath, int fileIndex, int cntFiles)
+    {
+        var message = $"Processing {fileIndex * 100 / cntFiles}% ({fileIndex}/{cntFiles}) {relativePath}";
+        if (!m_Verbose)
+        {
+            EraseProgressLine();
+            Console.Write($"\r{message}");
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.WriteLine(message);
+        }
+
+        m_LastProgressMessageLength = message.Length;
+    }
+
+    void EraseProgressLine()
+    {
+        if (!m_Verbose)
+            Console.Write($"\r{new string(' ', m_LastProgressMessageLength)}");
+        else
+            Console.WriteLine();
     }
 }
