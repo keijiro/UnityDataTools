@@ -12,7 +12,7 @@ namespace UnityDataTools.Analyzer;
 public class PPtrAndCrcProcessor : IDisposable
 {
     public delegate int CallbackDelegate(long objectId, int fileId, long pathId, string propertyPath, string propertyType);
-    
+
     private SerializedFile m_SerializedFile;
     private UnityFileReader m_Reader;
     private long m_Offset;
@@ -21,7 +21,7 @@ public class PPtrAndCrcProcessor : IDisposable
     private string m_Folder;
     private StringBuilder m_StringBuilder = new();
     private byte[] m_pptrBytes = new byte[4];
-    
+
     private CallbackDelegate m_Callback;
 
     private Dictionary<string, UnityFileReader> m_resourceReaders = new();
@@ -34,14 +34,14 @@ public class PPtrAndCrcProcessor : IDisposable
         m_Folder = folder;
         m_Callback = callback;
     }
-    
+
     public void Dispose()
     {
         foreach (var r in m_resourceReaders.Values)
         {
             r?.Dispose();
         }
-        
+
         m_resourceReaders.Clear();
     }
 
@@ -52,7 +52,7 @@ public class PPtrAndCrcProcessor : IDisposable
         {
             filename = filename.Remove(0, slashPos + 1);
         }
-        
+
         if (!m_resourceReaders.TryGetValue(filename, out var reader))
         {
             try
@@ -89,13 +89,13 @@ public class PPtrAndCrcProcessor : IDisposable
         {
             m_StringBuilder.Clear();
             m_StringBuilder.Append(child.Name);
-            ProcessNode(child);
+            ProcessNode(child, false);
         }
 
         return m_Crc32;
     }
 
-    private void ProcessNode(TypeTreeNode node)
+    private void ProcessNode(TypeTreeNode node, bool isInManagedReferenceRegistry)
     {
         if (node.IsBasicType)
         {
@@ -104,18 +104,18 @@ public class PPtrAndCrcProcessor : IDisposable
         }
         else if (node.IsArray)
         {
-            ProcessArray(node);
+            ProcessArray(node, false, isInManagedReferenceRegistry);
         }
         else if (node.Type == "vector" || node.Type == "map" || node.Type == "staticvector")
         {
-            ProcessArray(node.Children[0]);
+            ProcessArray(node.Children[0], false, isInManagedReferenceRegistry);
         }
         else if (node.Type.StartsWith("PPtr<"))
         {
             var startIndex = node.Type.IndexOf('<') + 1;
             var endIndex = node.Type.Length - 1;
             var referencedType = node.Type.Substring(startIndex, endIndex - startIndex);
-            
+
             ExtractPPtr(referencedType);
         }
         else if (node.Type == "StreamingInfo")
@@ -125,10 +125,10 @@ public class PPtrAndCrcProcessor : IDisposable
 
             var offset = node.Children[0].Size == 4 ? m_Reader.ReadInt32(m_Offset) : m_Reader.ReadInt64(m_Offset);
             m_Offset += node.Children[0].Size;
-            
+
             var size = m_Reader.ReadInt32(m_Offset);
             m_Offset += 4;
-            
+
             var stringSize = m_Reader.ReadInt32(m_Offset);
             var filename = m_Reader.ReadString(m_Offset + 4, stringSize);
             m_Offset += stringSize + 4;
@@ -148,7 +148,7 @@ public class PPtrAndCrcProcessor : IDisposable
         {
             if (node.Children.Count != 3)
                 throw new Exception("Invalid StreamedResource");
-            
+
             var stringSize = m_Reader.ReadInt32(m_Offset);
             var filename = m_Reader.ReadString(m_Offset + 4, stringSize);
             m_Offset += stringSize + 4;
@@ -156,7 +156,7 @@ public class PPtrAndCrcProcessor : IDisposable
 
             var offset = m_Reader.ReadInt64(m_Offset);
             m_Offset += 8;
-            
+
             var size = (int)m_Reader.ReadInt64(m_Offset);
             m_Offset += 8;
 
@@ -178,7 +178,9 @@ public class PPtrAndCrcProcessor : IDisposable
         }
         else if (node.IsManagedReferenceRegistry)
         {
-            ProcessManagedReferenceRegistry(node);
+            // ManagedReferenceRegistry are never nested
+            if (!isInManagedReferenceRegistry)
+                ProcessManagedReferenceRegistry(node);
         }
         else
         {
@@ -187,11 +189,11 @@ public class PPtrAndCrcProcessor : IDisposable
                 var size = m_StringBuilder.Length;
                 m_StringBuilder.Append('.');
                 m_StringBuilder.Append(child.Name);
-                ProcessNode(child);
+                ProcessNode(child, isInManagedReferenceRegistry);
                 m_StringBuilder.Remove(size, m_StringBuilder.Length - size);
             }
         }
-        
+
         if (
                 ((int)node.MetaFlags & (int)TypeTreeMetaFlags.AlignBytes) != 0 ||
                 ((int)node.MetaFlags & (int)TypeTreeMetaFlags.AnyChildUsesAlignBytes) != 0
@@ -201,7 +203,7 @@ public class PPtrAndCrcProcessor : IDisposable
         }
     }
 
-    private void ProcessArray(TypeTreeNode node, bool isManagedReferenceRegistry = false)
+    private void ProcessArray(TypeTreeNode node, bool isManagedReferenceRegistry, bool isInManagedReferenceRegistry)
     {
         var dataNode = node.Children[1];
 
@@ -221,14 +223,13 @@ public class PPtrAndCrcProcessor : IDisposable
             {
                 if (!isManagedReferenceRegistry)
                 {
-                    
                     var size = m_StringBuilder.Length;
                     m_StringBuilder.Append('[');
                     m_StringBuilder.Append(i);
                     m_StringBuilder.Append(']');
-                    
-                    ProcessNode(dataNode);
-                    
+
+                    ProcessNode(dataNode, isInManagedReferenceRegistry);
+
                     m_StringBuilder.Remove(size, m_StringBuilder.Length - size);
                 }
                 else
@@ -285,7 +286,7 @@ public class PPtrAndCrcProcessor : IDisposable
             var size = m_StringBuilder.Length;
             m_StringBuilder.Append('.');
             m_StringBuilder.Append("RefIds");
-            ProcessArray(refIdsArrayNode, true);
+            ProcessArray(refIdsArrayNode, true, true);
             m_StringBuilder.Remove(size, m_StringBuilder.Length - size);
         }
         else
@@ -330,9 +331,9 @@ public class PPtrAndCrcProcessor : IDisposable
         m_StringBuilder.Append("rid(");
         m_StringBuilder.Append(rid);
         m_StringBuilder.Append(").data");
-        ProcessNode(refTypeTypeTree);
+        ProcessNode(refTypeTypeTree, true);
         m_StringBuilder.Remove(size, m_StringBuilder.Length - size);
-        
+
         return true;
     }
 

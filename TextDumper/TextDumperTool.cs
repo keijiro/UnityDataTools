@@ -60,7 +60,20 @@ public class TextDumperTool
     {
         bool skipChildren = false;
 
-        if (!node.IsArray)
+        if (level > 1 && node.IsManagedReferenceRegistry)
+        {
+            // If we are already inside a ManagedReferenceRegistry, then we ignore the ManagedReferenceRegistry node
+            // they can appear in the TypeTrees of Managed objects, but only the root object actually has a registry
+            skipChildren = true;
+        }
+        else if (node.IsArray)
+        {
+            DumpArray(node, ref offset, level);
+
+            // Skip child nodes as they were already processed here.
+            skipChildren = true;
+        }
+        else
         {
             m_StringBuilder.Append(' ', level * 2);
 
@@ -106,7 +119,7 @@ public class TextDumperTool
 
             m_Writer.WriteLine(m_StringBuilder);
             m_StringBuilder.Clear();
-            
+
             if (node.IsManagedReferenceRegistry)
             {
                 DumpManagedReferenceRegistry(node, ref offset, level + 1);
@@ -114,13 +127,6 @@ public class TextDumperTool
                 // Skip child nodes as they were already processed here.
                 skipChildren = true;
             }
-        }
-        else
-        {
-            DumpArray(node, ref offset, level);
-
-            // Skip child nodes as they were already processed here.
-            skipChildren = true;
         }
 
         if (!skipChildren)
@@ -194,7 +200,7 @@ public class TextDumperTool
             else
             {
                 ++level;
-                    
+
                 for (int i = 0; i < arraySize; ++i)
                 {
                     RecursiveDump(dataNode, ref offset, level, i);
@@ -207,14 +213,14 @@ public class TextDumperTool
     {
         if (node.Children.Count < 2)
             throw new Exception("Invalid ManagedReferenceRegistry");
-                
+
         // First child is version number.
         var version = m_Reader.ReadInt32(offset);
         RecursiveDump(node.Children[0], ref offset, level);
 
         TypeTreeNode refTypeNode;
         TypeTreeNode refObjData;
-                
+
         if (version == 1)
         {
             // Second child is the ReferencedObject.
@@ -222,7 +228,7 @@ public class TextDumperTool
             // And its children are the referenced type and data nodes.
             refTypeNode = refObjNode.Children[0];
             refObjData = refObjNode.Children[1];
-                
+
             int i = 0;
 
             while (DumpManagedReferenceData(refTypeNode, refObjData, ref offset, level, i++))
@@ -244,7 +250,7 @@ public class TextDumperTool
             // First child is the array size.
             int arraySize = m_Reader.ReadInt32(offset);
             offset += 4;
-                
+
             // Second child is the ReferencedObject.
             var refObjNode = refIdsArrayNode.Children[1];
 
@@ -253,7 +259,7 @@ public class TextDumperTool
                 // First child is the rid.
                 long rid = m_Reader.ReadInt64(offset);
                 offset += 8;
-                
+
                 // And the next children are the referenced type and data nodes.
                 refTypeNode = refObjNode.Children[1];
                 refObjData = refObjNode.Children[2];
@@ -270,15 +276,15 @@ public class TextDumperTool
     {
         if (refTypeNode.Children.Count < 3)
             throw new Exception("Invalid ReferencedManagedType");
-            
+
         m_StringBuilder.Append(' ', level * 2);
         m_StringBuilder.Append($"rid(");
         m_StringBuilder.Append(id);
         m_StringBuilder.Append(") ReferencedObject");
-        
+
         m_Writer.WriteLine(m_StringBuilder);
         m_StringBuilder.Clear();
-        
+
         ++level;
 
         var refTypeOffset = offset;
@@ -286,12 +292,12 @@ public class TextDumperTool
         var className = m_Reader.ReadString(offset + 4, stringSize);
         offset += stringSize + 4;
         offset = (offset + 3) & ~(3);
-            
+
         stringSize = m_Reader.ReadInt32(offset);
         var namespaceName = m_Reader.ReadString(offset + 4, stringSize);
         offset += stringSize + 4;
         offset = (offset + 3) & ~(3);
-            
+
         stringSize = m_Reader.ReadInt32(offset);
         var assemblyName = m_Reader.ReadString(offset + 4, stringSize);
         offset += stringSize + 4;
@@ -308,7 +314,7 @@ public class TextDumperTool
         m_StringBuilder.Append(' ');
         m_StringBuilder.Append(referencedTypeDataNode.Type);
         m_StringBuilder.Append(' ');
-        
+
         m_Writer.WriteLine(m_StringBuilder);
         m_StringBuilder.Clear();
 
@@ -316,7 +322,7 @@ public class TextDumperTool
         {
             m_StringBuilder.Append(' ', level * 2);
             m_StringBuilder.Append(id == -1 ? "  unknown" : "  null");
-        
+
             m_Writer.WriteLine(m_StringBuilder);
             m_StringBuilder.Clear();
 
@@ -324,7 +330,7 @@ public class TextDumperTool
         }
 
         var refTypeRoot = m_SerializedFile.GetRefTypeTypeTreeRoot(className, namespaceName, assemblyName);
-        
+
         // Dump the ReferencedObject using its own TypeTree, but skip the root.
         foreach (var child in refTypeRoot.Children)
         {
