@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using UnityDataTools.Analyzer.SQLite;
@@ -10,7 +11,13 @@ public class AnalyzerTool
 {
     bool m_Verbose = false;
 
-    public int Analyze(string path, string databaseName, string searchPattern, bool skipReferences, bool verbose)
+    public int Analyze(
+        string path,
+        string databaseName,
+        string searchPattern,
+        bool skipReferences,
+        bool verbose,
+        bool noRecursion)
     {
         m_Verbose = verbose;
 
@@ -29,7 +36,11 @@ public class AnalyzerTool
         var timer = new Stopwatch();
         timer.Start();
 
-        var files = Directory.GetFiles(path, searchPattern, SearchOption.AllDirectories);
+        var files = Directory.GetFiles(
+            path,
+            searchPattern,
+            noRecursion ? SearchOption.TopDirectoryOnly : SearchOption.AllDirectories);
+
         int i = 1;
         foreach (var file in files)
         {
@@ -65,29 +76,30 @@ public class AnalyzerTool
     bool ShouldIgnoreFile(string file)
     {
         // Unfortunately there is no standard extension for AssetBundles, and SerializedFiles often have no extension at all.
-        // There is also no distinctive signature at the start of a SerializedFile to immediately recognize it
-        // (Unity Archives do have this).
-        // So to reduce noise in UnityDataTool output we filter out files that we have a high confidence are NOT SerializedFiles or Unity Archives.
+        // Also there is also no distinctive signature at the start of a SerializedFile to immediately recognize it based on its first bytes.
+        // This makes it difficult to use the "--search-pattern" argument to only pick those files.
+
+        // Hence to reduce noise in UnityDataTool output we filter out files that we have a high confidence are
+        // NOT SerializedFiles or Unity Archives.
 
         string fileName = Path.GetFileName(file);
         string extension = Path.GetExtension(file);
 
-        if ((fileName == ".DS_Store") || // Automatically ignore these annoying OS X style files meta files.
-            (fileName == "archive_dependencies.bin") ||
-            (fileName == "scene_info.bin") ||
-            (fileName == "app.info") ||
-            (extension == ".txt") ||
-            (extension == ".resS") ||
-            (extension == ".resource") ||
-            (extension == ".json") ||
-            (extension == ".dll") ||
-            (extension == ".pdb") ||
-            (extension == ".manifest") ||
-            (extension == ".entities") ||
-            (extension == ".entityheader"))
-            return true;
-        return false;
+        return IgnoredFileNames.Contains(fileName) || IgnoredExtensions.Contains(extension);
     }
+
+    // These lists are based on expected output files in Player, AssetBundle, Addressables and ECS builds.
+    // However this is by no means exhaustive.
+    private static readonly HashSet<string> IgnoredFileNames = new()
+    {
+        ".DS_Store", "boot.config", "archive_dependencies.bin", "scene_info.bin", "app.info", "link.xml",
+        "catalog.bin", "catalog.hash"
+    };
+
+    private static readonly HashSet<string> IgnoredExtensions = new()
+    {
+        ".txt", ".resS", ".resource", ".json", ".dll", ".pdb", ".exe", ".manifest", ".entities", ".entityheader"
+    };
 
     void ProcessFile(string file, string rootDirectory, SQLiteWriter writer, int fileIndex, int cntFiles)
     {
@@ -148,7 +160,7 @@ public class AnalyzerTool
         {
             EraseProgressLine();
             Console.Error.WriteLine();
-            //Console.Error.WriteLine($"File not supported: {file}"); // This is commented out because another codepath will output "failed to load"
+            //A "failed to load" error will already be logged by the UnityFileSystem library
         }
         catch (Exception e)
         {

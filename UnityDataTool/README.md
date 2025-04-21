@@ -33,48 +33,72 @@ The tool is invoked from the command line like this: `UnityDataTool [command] [c
 
 For a list of available commands run it like this: `UnityDataTool --help`
 
-For help on a specific command use `--help` along with the command name, for example: `UnityDataTool analyse --help`
+For help on a specific command use `--help` along with the command name, for example: `UnityDataTool analyze --help`
 
 
 # Commands
 
 ## analyze/analyse
 
-This command extracts information from AssetBundles and SerializedFiles and dumps the results
-into a SQLite database. 
+This command extracts information from Unity Archives (e.g. AssetBundles) and SerializedFiles and dumps the results into a SQLite database. 
 
-The command will fail if the SerializedFiles were built without TypeTrees, see [this topic](../Documentation/unity-content-format.md) for more information.
 The command takes the path of the folder containing the files to analyze as argument.
 
 It also provides the following options:
 * -o, --output-file \<database-filename\>: filename of the database that will be created, the
-  default is database.db.
+  default is database.db.  Any existing file by that name will be replaced by the data from running this command.
 * -s, --skip-references: skip CRC and reference (PPtrs) extraction. Faster processing and smaller
   database, but inaccurate duplicate asset detection and no references table.
-* -p, --search-pattern \<pattern\>: search pattern used to determine which files are AssetBundles.  The default is \*.  The * and ? characters are supported, but not regular expressions. The search is always recursive.
+* -p, --search-pattern \<pattern\>: search pattern used to determine which files are AssetBundles.  The default is \*.  The * and ? characters are supported. Regular expressions are not supported.
+* -v, --verbose: show more information during the analysis process, for example list any files that are ignored.
+* --no-recurse: do not recurse into sub-directories.
 
-Example: `UnityDataTool analyze /path/to/asset/bundles -o my_database.db -p *.bundle`
+Example: `UnityDataTool analyze /path/to/asset/bundles -o my_database.db -p "*.bundle"`
 
 **Refer to this [documentation](../Analyzer/README.md#How-to-use-the-database) for more information
 about the output database structure.**
 
-### Common Warnings during Analysis
-
-The analysis search may find files that are not actually Archives or SerializedFiles, for example .manifest files, text dumps etc.
-
-This can lead to error messages like this: 
+Note: If a SerializedFile is built without TypeTrees, then the command will not be able to extract information about the contained objects.  It will print an error similar to this example, then skip to the next file:
 
 ```
-Failed to load 'C:\....\AssetBundles.manifest'. File may be corrupted or was serialized with a newer version of Unity.
+Error processing file: C:\Src\TestProject\Build\Player\TestProject_Data\level0
+System.ArgumentException: Invalid object id.
 ```
 
-In that case it is not a serious error, because the analyze process will continue and can still produce a perfectly valid database file.
+See [this topic](../Documentation/unity-content-format.md) for more information about TypeTrees.
 
-If you use an extension of other naming convention for your AssetBundles, for example ".bundle", then you can avoid those warnings using the `-p .bundle` option to ignore .manifest and other files.  
+### Example Input to the Analyze command
 
-For Player builds there is no single -p option that can catch all SerializedFiles (unless it is a compressed build generating a single data.unity3d file).
+Example of directories that could be analyzed:
 
-Overall it can be a good idea to avoid those errors, as noisy errors may hide more serious errors that would need your attention.
+* The output path of an AssetBundle build.
+* A folder inside the StreamingAssets folder of a Unity Player build. For example:
+  * The "StreamingAssets/aa" folder, containing AssetBundles from an Addressables build.
+  * The "StreamingAssets/ContentArchives" folder containing sub-scene content if your project uses [Entities](https://docs.unity3d.com/Packages/com.unity.entities@1.4/manual/content-management-intro.html).
+* The "Data" folder of a Unity Player build.
+  * By default, any AssetBundles or ContentArchives in the StreamingAssets folder would also be included. Use the "--no-recurse" option to avoid that.
+  * Compressed Player Builds are supported. The data.unity3d file will be analyzed the same way AssetBundles are.
+  * The structure and content of a Player varies based on the platform.  In some cases you may have to first extract the content out of a platform-specific container file prior to Analysis (for example .apk files on Android).
+
+### Filtering Other File Types
+
+Analyze works by trying to process all files in the provided path, assuming they are all Unity Archives or SerializedFiles.  Because there is no standard file extension for those files it is tricky to reliably distinguish these file types from the other files that may also be found in the build output.
+
+This can lead to error messages in the UnityDataTool output like this: 
+
+```
+Failed to load 'C:\....\MyData.db'. File may be corrupted or was serialized with a newer version of Unity.
+```
+
+Typically these are not serious errors. The analyze process will continue, and can still produce a perfectly valid database file.  However if there are many messages like this it can obscure more important or unexpected failures.
+
+To reduce the number of these warnings, UnityDataTool automatically ignores common filenames and file paths that are found in Player, AssetBundle, Addressable or Entities builds.  For example ".txt, .json, .manifest".  When the `--verbose` option is passed each ignored file will be listed.
+
+If you use an extension or other naming convention for your AssetBundles, for example ".bundle", then you can avoid those warnings using the `-p .bundle` option to ignore other files.
+
+For Player builds there is no single -p option that can catch all SerializedFiles (unless it is a compressed build with a single `data.unity3d` file).
+
+The `--no-recurse` option can reduce the volume of these warnings.
 
 ## dump
 

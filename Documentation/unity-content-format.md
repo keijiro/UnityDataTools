@@ -50,6 +50,14 @@ To do so, the **ForceAlwaysWriteTypeTrees** Diagnostic Switch must be enabled in
 
 ![](./TypeTreeForPlayer.png)
 
+
+Note: The `Resources\unity default resources` file is shipped with the Unity Editor and is not rebuilt when doing a Player Build.  It does not have TypeTrees.  Hence it is normal that this file emits errors when analyzing a player build, even after rebuilding with TypeTrees enabled.  For example:
+
+```
+Error processing file: C:\TestProject\CompressedPlayer\TestProject_Data\Resources\unity default resources
+System.ArgumentException: Invalid object id.
+```
+
 For more information about TypeTrees see the following section.
 
 ## TypeTrees
@@ -61,7 +69,7 @@ definition exactly matches the Type definition used when the object was serializ
 Unity will attempt to match up the properties as best as it can, based on the property names and structure
 of the data.  This process is called a "Safe Binary Read" and is somewhat slower than the regular fast binary read path.
 
-TypeTrees are important in the case of AssetBundles, to avoid rebuilding and redistributing all AssetBundles after each minor upgrade of Unity or after doing minor changes to your MonoBehaviour and ScriptableObject serialization.  However there can be a noticable overhead to storing the TypeTrees in each AssetBundle, e.g. the header size of each SerializedFile is bigger.
+TypeTrees are important in the case of AssetBundles, to avoid rebuilding and redistributing all AssetBundles after each minor upgrade of Unity or after doing minor changes to your MonoBehaviour and ScriptableObject serialization.  However there can be a noticeable overhead to storing the TypeTrees in each AssetBundle, e.g. the header size of each SerializedFile is bigger.
 
 TypeTrees also make it possible to load an AssetBundle in the Editor, when testing game play.
 
