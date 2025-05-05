@@ -199,6 +199,7 @@ public class SQLiteWriter : IWriter
             if (relativePath.EndsWith(".sharedAssets"))
             {
                 m_AddObjectCommand.Transaction = transaction;
+                m_AddObjectCommand.Parameters["@game_object"].Value = ""; // There is no asscociated GameObject
                 m_AddObjectCommand.Parameters["@id"].Value = sceneId;
                 m_AddObjectCommand.Parameters["@object_id"].Value = 0;
                 m_AddObjectCommand.Parameters["@serialized_file"].Value = serializedFileId;
