@@ -20,7 +20,11 @@ Note that on Mac, you need to publish the UnityDataTool project to get an execut
 can do it from your IDE or execute this command in the UnityDataTool folder (not from the root
 folder):
 
-`dotnet publish -c Release -r osx-x64 -p:PublishSingleFile=true -p:UseAppHost=true`
+(On intel-based macs)  
+`dotnet publish UnityDataTool -c Release -r osx-x64 -p:PublishSingleFile=true -p:UseAppHost=true`  
+
+(On apple silicon macs)  
+`dotnet publish UnityDataTool -c Release -r osx-arm64 -p:PublishSingleFile=true -p:UseAppHost=true`  
 
 Also on Mac, you may be a warning that "UnityFileSystemApi.dylib" cannot be opened because the
 developer cannot be verified.  In that case click "Cancel", then open the System Preferences -> Security &
