@@ -23,7 +23,7 @@ jobs:
       - name: Publish UnityDataTool (${{ matrix.arch }})
         run: >
           dotnet publish UnityDataTool
-          -c Release
+          -c Debug
           -r ${{ matrix.arch }}
           -p:PublishSingleFile=true
           -p:UseAppHost=true
