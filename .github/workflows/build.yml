@@ -33,4 +33,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: UnityDataTool-${{ matrix.arch }}
-          path: publish/${{ matrix.arch }}/UnityDataTool
+          path: publish/${{ matrix.arch }}
